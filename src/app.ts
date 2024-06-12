@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer';
 import Jimp from 'jimp';
+import fs from 'fs';
 
 // Custom timeout function for delays
 function wait(ms: number) {
@@ -42,23 +43,24 @@ async function hideBanners(page: puppeteer.Page) {
     });
 }
 
-
-
-
 async function captureScreenshots(page: puppeteer.Page, scrollInterval: number, outputPath: string) {
     let scrollHeight = 0;
     let lastScrollHeight = await page.evaluate(() => document.body.scrollHeight);
-    let screenshots: Buffer[] = [];
-  
-    while (scrollHeight < lastScrollHeight) {
+    let counter = 0;  // Counter to name screenshots
 
-  
+    while (scrollHeight < lastScrollHeight) {
         await page.evaluate(scrollHeight => window.scrollTo(0, scrollHeight), scrollHeight);
         await wait(200);  // Wait for any lazy-loaded content
         
+        const screenshotBuffer = await page.screenshot();
+        const image = await Jimp.read(screenshotBuffer);
+            image.resize(683, 384); // Reduzindo a resolução pela metade
+
+            // Salvando a imagem redimensionada
+            await image.writeAsync(`${outputPath}/${counter}.png`);
         // Take a screenshot at this scroll position
-        const screenshot = await page.screenshot();
-        screenshots.push(screenshot as Buffer);
+       // const screenshot = await page.screenshot({path: `${outputPath}/${counter}.png`});
+        counter++;
 
         // Update scroll height and calculate next position
         scrollHeight += scrollInterval;
@@ -68,36 +70,29 @@ async function captureScreenshots(page: puppeteer.Page, scrollInterval: number, 
         if (newScrollHeight === lastScrollHeight && scrollHeight >= lastScrollHeight) {
             break; // Break if no new content is loaded and we are at the end
         }
-        else if((lastScrollHeight-scrollHeight)< scrollInterval/2) break
-
+        else if((lastScrollHeight-scrollHeight)< scrollInterval/2) break;
 
         lastScrollHeight = newScrollHeight;
     }
-
-    const images = await Promise.all(screenshots.map(s => Jimp.read(s)));
-    let totalHeight = images.reduce((acc, img) => acc + img.getHeight(), 0);
-    let maxWidth = Math.max(...images.map(img => img.getWidth()));
-
-    const finalImage = new Jimp(maxWidth, totalHeight);
-    let y = 0;
-    for (let img of images) {
-        finalImage.blit(img, 0, y);
-        y += img.getHeight();
-    }
-    await finalImage.writeAsync(outputPath);
 }
 
-async function takeScreenshot(url: string, outputPath: string) {
+async function takeScreenshot(url: string, outputDir: string) {
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle2' });
-    await page.setViewport({ width: 1280, height: 800 }); // Set the viewport size
-    closeBanners(page);
-    hideBanners(page);
-    await captureScreenshots(page, 800, outputPath); // Adjust scrollInterval based on viewport height
-    console.log(`Screenshot saved: ${outputPath}`);
+    await page.setViewport({ width: 1024, height: 768 }); // Set the viewport size
+
+    // Ensure output directory exists
+    if (!fs.existsSync(outputDir)){
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    await closeBanners(page);
+    await hideBanners(page);
+    await captureScreenshots(page, 800, outputDir); // Adjust scrollInterval based on viewport height
+    console.log(`Screenshots saved in directory: ${outputDir}`);
 
     await browser.close();
 }
 
-takeScreenshot('https://www.e-store.com.br/', 'complete-screenshot.png').catch(console.error);
+takeScreenshot('https://lvstore.com.br/', 'screenshots').catch(console.error);
